@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: ble-tracker-db
+    environment:
+      POSTGRES_USER: bletracker
+      POSTGRES_PASSWORD: changeMe123
+      POSTGRES_DB: ble_tracker_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/schemas.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bletracker"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ble-network
+
+  # Flask Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: ble-tracker-backend
+    environment:
+      DATABASE_URL: postgresql://bletracker:changeMe123@db:5432/ble_tracker_db
+      FLASK_ENV: development
+      SECRET_KEY: dev-secret-key-change-in-production
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app/backend
+    command: python backend/app.py
+    networks:
+      - ble-network
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ble-tracker-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://localhost:5000
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - ble-network
+
+  # Redis Cache (Optional, for sessions/caching)
+  redis:
+    image: redis:7-alpine
+    container_name: ble-tracker-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ble-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  ble-network:
+    driver: bridge
